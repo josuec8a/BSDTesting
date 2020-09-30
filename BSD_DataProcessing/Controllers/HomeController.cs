@@ -107,22 +107,45 @@ namespace BSD_DataProcessing.Controllers
 
                     if (docIds == null) return NotFound();
 
-                    List<string> retryList = null;
-                    int attachNumber = 1;
+                    //DataTable dtDocument = await ProcessData(webRootDownloadPath, docIds, Constants.ApiUrl, 1);
+                    var processResult = await ProcessData(webRootDownloadPath, docIds, Constants.ApiUrl, 1);
 
-                    DataTable dtDocument = await ProcessData(webRootDownloadPath, docIds, retryList, Constants.ApiUrl, attachNumber);
-
-                    if (dtDocument != null)
+                    //if (dtDocument != null)
+                    if (processResult.DataProcessed != null)
                     {
-                        if (retryList != null)
+                        if (processResult.RetryList != null)
                         {
-                            var errorDocs = retryList;
-                            dtDocument.Merge(await ProcessData(webRootDownloadPath, errorDocs, retryList, Constants.ApiUrl, 2));
+                            var retryResult = await ProcessData(webRootDownloadPath, processResult.RetryList, Constants.ApiUrl, 2);
+                            if (retryResult.DataProcessed != null)
+                                processResult.DataProcessed.Merge(retryResult.DataProcessed);
                         }
+                        //    var foundRows = dtDocument.Select("DocId like '%r%'");
+                        //    if (foundRows.Length > 0)
+                        //    {
+                        //        await LogActivity(webRootDownloadPath, $"Reproceso...");
+
+                        //        var retryList = new List<string>();
+
+                        //        for (int i = 0; i < foundRows.Length; i++)
+                        //        {
+                        //            retryList.Add(foundRows[i][0].ToString().Split('|')[0]);
+                        //        }
+
+                        //        dtDocument.Merge(await ProcessData(webRootDownloadPath, retryList, Constants.ApiUrl, 2));
+
+                        //        for (int i = dtDocument.Rows.Count - 1; i >= 0; i--)
+                        //        {
+                        //            DataRow dr = dtDocument.Rows[i];
+                        //            if (dr["DocId"].ToString().Contains('r'))
+                        //                dr.Delete();
+                        //        }
+                        //        dtDocument.AcceptChanges();
+                        //    }
 
                         using (XLWorkbook workbook = new XLWorkbook(filePath))
                         {
-                            IXLWorksheet dbSheet = workbook.AddWorksheet(dtDocument, "DB");
+                            //IXLWorksheet dbSheet = workbook.AddWorksheet(dtDocument, "DB");
+                            IXLWorksheet dbSheet = workbook.AddWorksheet(processResult.DataProcessed, "DB");
                             workbook.Save();
 
                             var bytes = await System.IO.File.ReadAllBytesAsync(filePath);
@@ -158,10 +181,16 @@ namespace BSD_DataProcessing.Controllers
             }
         }
 
-        private async Task<DataTable> ProcessData(string webRootDownloadPath, List<string> docIds, List<string> retryList, string apiUrl, int attachNumber)
+        public class ProcessDataResult
+        {
+            public DataTable DataProcessed { get; set; }
+            public List<string> RetryList { get; set; }
+        }
+
+        private async Task<ProcessDataResult> ProcessData(string webRootDownloadPath, List<string> docIds, string apiUrl, int attachNumber)
         {
             DataTable dtDocument = null;
-
+            List<string> retryList = null;
             foreach (string docId in docIds)
             {
                 if (dtDocument == null)
@@ -181,14 +210,22 @@ namespace BSD_DataProcessing.Controllers
 
                     if (response.RawBytes == null)
                     {
-                        if (retryList == null)
-                            retryList = new List<string>();
-
+                        if (retryList == null) retryList = new List<string>();
                         retryList.Add(docId);
 
-                        await LogActivity(webRootDownloadPath, $"{docId}, accion: reprocesar attachment 2");
+                        if (attachNumber > 1)
+                        {
+                            var row = dtDocument.NewRow();
+                            row["DocId"] = docId + " - Error al descargar adjunto 2";
+                            dtDocument.Rows.Add(row);
+                        }
+                        //attachNumber = 2;
+                        //response = await DoHttp(apiUrl, docId, attachNumber);
+                        await LogActivity(webRootDownloadPath, $"{docId}, accion: reprocesando attachment 2");
                     }
-                    else
+                    //else
+                    //{
+                    if (response.RawBytes != null)
                     {
                         await LogActivity(webRootDownloadPath, docId);
 
@@ -206,8 +243,8 @@ namespace BSD_DataProcessing.Controllers
 
                             //mapping fields
                             var row = dtDocument.NewRow();
-                            var _docId = $"{docId}{(attachNumber > 1 ? " - " + attachNumber.ToString() : string.Empty)}";
-                            row["DocId"] = _docId;
+                            var _docId = $"{docId}{(attachNumber > 1 ? "-" + attachNumber.ToString() : string.Empty)}";
+                            row["DocId"] = docId; // _docId;
 
                             foreach (Fields f in Constants.GetFields)
                             {
@@ -228,18 +265,16 @@ namespace BSD_DataProcessing.Controllers
                 }
                 catch (Exception ex)
                 {
-                    //var row = dtDocument.NewRow();
-                    //row["DocId"] = $"{docId}, error";
-                    ////row["DocId"] = $"{docId}, error: {ex.Message}";
-
-                    //dtDocument.Rows.Add(row);
+                    var row = dtDocument.NewRow();
+                    row["DocId"] = $"{docId}, error: {ex.Message}";
+                    dtDocument.Rows.Add(row);
 
                     await LogActivity(webRootDownloadPath, $"{docId}, error: {ex.Message}");
 
                 }
             }
 
-            return dtDocument;
+            return new ProcessDataResult() { DataProcessed = dtDocument, RetryList = retryList }; //dtDocument;
         }
 
         public async Task<IRestResponse> DoHttp(string apiUrl, string docId, int attachNumber = 1)
