@@ -119,28 +119,6 @@ namespace BSD_DataProcessing.Controllers
                             if (retryResult.DataProcessed != null)
                                 processResult.DataProcessed.Merge(retryResult.DataProcessed);
                         }
-                        //    var foundRows = dtDocument.Select("DocId like '%r%'");
-                        //    if (foundRows.Length > 0)
-                        //    {
-                        //        await LogActivity(webRootDownloadPath, $"Reproceso...");
-
-                        //        var retryList = new List<string>();
-
-                        //        for (int i = 0; i < foundRows.Length; i++)
-                        //        {
-                        //            retryList.Add(foundRows[i][0].ToString().Split('|')[0]);
-                        //        }
-
-                        //        dtDocument.Merge(await ProcessData(webRootDownloadPath, retryList, Constants.ApiUrl, 2));
-
-                        //        for (int i = dtDocument.Rows.Count - 1; i >= 0; i--)
-                        //        {
-                        //            DataRow dr = dtDocument.Rows[i];
-                        //            if (dr["DocId"].ToString().Contains('r'))
-                        //                dr.Delete();
-                        //        }
-                        //        dtDocument.AcceptChanges();
-                        //    }
 
                         using (XLWorkbook workbook = new XLWorkbook(filePath))
                         {
