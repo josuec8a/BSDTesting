@@ -1,0 +1,20 @@
+﻿@{
+    //ViewData["Title"] = "Home Page";
+}
+
+<div style="width:90%">
+    <h2>Bienvenido</h2>
+    <p>Para completar la tarea es necesario que proveea el archivo (DocumentIdList.xlsx) con los Ids de los documentos a procesar</p>
+
+    @using (Html.BeginForm("UploadExcel", "Home", FormMethod.Post, new { enctype = "multipart/form-data" }))
+    {
+        <div class="modal-body" style="padding-left:0px">
+            <div class="form-group">
+                <input type="file" id="fileupload" name="fileupload" accept=".xls, .xlsx" />
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary">Importar</button>
+        </div>
+    }
+</div>
