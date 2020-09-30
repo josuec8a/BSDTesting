@@ -14,6 +14,7 @@ using System.Reflection;
 using System.Net;
 using RestSharp;
 using System.Data;
+using BSD_DataProcessing.Helpers;
 
 namespace BSD_DataProcessing.Controllers
 {
@@ -21,11 +22,15 @@ namespace BSD_DataProcessing.Controllers
     {
         private readonly ILogger<HomeController> _logger;
         private readonly IWebHostEnvironment _environment;
+        private readonly string _webRootDownloadPath;
+        private readonly string _webRootPath;
 
         public HomeController(ILogger<HomeController> logger, IWebHostEnvironment environment)
         {
             _logger = logger;
             _environment = environment;
+            _webRootDownloadPath = _environment.WebRootPath + "\\Upload\\" + "\\Download\\";
+            _webRootPath = _environment.WebRootPath + "\\Upload\\";
         }
 
         public IActionResult Index()
@@ -36,23 +41,19 @@ namespace BSD_DataProcessing.Controllers
         [HttpPost]
         public async Task<ActionResult> UploadExcel(Microsoft.AspNetCore.Http.IFormFile fileupload)
         {
-            var dt = new System.Data.DataTable();
+            var dtDocumentIdList = new System.Data.DataTable();
             //Checking file content length and Extension must be .xlsx  
             if (fileupload != null)
             {
                 if (fileupload.Length > 0 && fileupload.ContentType == "application/vnd.ms-excel" || fileupload.ContentType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 {
-                    string webRootPath = _environment.WebRootPath + "\\Upload\\";
-                    string webRootDownloadPath = _environment.WebRootPath + "\\Upload\\" + "\\Download\\";
 
-                    if (!Directory.Exists(webRootPath))
-                    {
-                        Directory.CreateDirectory(webRootPath);
-                    }
+                    if (!Directory.Exists(_webRootPath))
+                        Directory.CreateDirectory(_webRootPath);
 
                     string id = Guid.NewGuid().ToString();
                     string fileName = $"{Guid.NewGuid().ToString()}{ Path.GetExtension(fileupload.FileName)}";
-                    string filePath = $"{webRootPath}{fileName}";
+                    string filePath = $"{_webRootPath}{fileName}";
 
                     using (FileStream fs = System.IO.File.Create(filePath))
                     {
@@ -77,7 +78,7 @@ namespace BSD_DataProcessing.Controllers
                                 readRange = string.Format("{0}:{1}", 1, row.LastCellUsed().Address.ColumnNumber);
                                 foreach (IXLCell cell in row.Cells(readRange))
                                 {
-                                    dt.Columns.Add(cell.Value.ToString());
+                                    dtDocumentIdList.Columns.Add(cell.Value.ToString());
                                 }
                                 FirstRow = false;
                             }
@@ -87,7 +88,7 @@ namespace BSD_DataProcessing.Controllers
                                     docIds = new List<string>();
 
                                 //Adding a Row in datatable  
-                                dt.Rows.Add();
+                                dtDocumentIdList.Rows.Add();
                                 int cellIndex = 0;
                                 //Updating the values of datatable  
                                 foreach (IXLCell cell in row.Cells(readRange))
@@ -107,23 +108,38 @@ namespace BSD_DataProcessing.Controllers
 
                     if (docIds == null) return NotFound();
 
-                    //DataTable dtDocument = await ProcessData(webRootDownloadPath, docIds, Constants.ApiUrl, 1);
-                    var processResult = await ProcessData(webRootDownloadPath, docIds, Constants.ApiUrl, 1);
 
-                    //if (dtDocument != null)
-                    if (processResult.DataProcessed != null)
+                    if (!Directory.Exists(_webRootDownloadPath))
+                        Directory.CreateDirectory(_webRootDownloadPath);
+
+                    //descarga adjunto 1
+                    var taskResult1 = await Task.WhenAll(docIds.Select(doc => DownloadFileAsync(doc, 1)));
+
+                    await LogActivity(_webRootDownloadPath, $"taskResult1.Lenght: {taskResult1.Length}, OK");
+
+                    //descarga adjunto 2
+                    var taskResult2 = await Task.WhenAll(taskResult1.Select(doc => DownloadFileAsync(doc, 2)));
+
+                    await LogActivity(_webRootDownloadPath, $"taskResult2.Lenght: {taskResult2.Length}, Error");
+
+                    //lista a procesar
+                    List<string> processLst = docIds.Where(p => !taskResult2.Contains(p)).ToList();
+
+                    var dtDocument = new DataTable("DB");
+                    dtDocument.Columns.Add("DocId", typeof(string));
+                    //add columns
+                    Constants.GetFields.ForEach(e =>
                     {
-                        if (processResult.RetryList != null)
-                        {
-                            var retryResult = await ProcessData(webRootDownloadPath, processResult.RetryList, Constants.ApiUrl, 2);
-                            if (retryResult.DataProcessed != null)
-                                processResult.DataProcessed.Merge(retryResult.DataProcessed);
-                        }
+                        dtDocument.Columns.Add(e.Name, typeof(string));
+                    });
 
+                    await Task.WhenAll(processLst.Select(s => ProcessDocument(dtDocument, s)));
+
+                    if (dtDocument.Rows.Count > 0)
+                    {
                         using (XLWorkbook workbook = new XLWorkbook(filePath))
                         {
-                            //IXLWorksheet dbSheet = workbook.AddWorksheet(dtDocument, "DB");
-                            IXLWorksheet dbSheet = workbook.AddWorksheet(processResult.DataProcessed, "DB");
+                            IXLWorksheet dbSheet = workbook.AddWorksheet(dtDocument, "DB");
                             workbook.Save();
 
                             var bytes = await System.IO.File.ReadAllBytesAsync(filePath);
@@ -137,136 +153,96 @@ namespace BSD_DataProcessing.Controllers
                                 FileDownloadName = fileName
                             };
 
+                            TempData["Ok"] = true;
+
                             return fileContentResult;
                         }
                     }
-                }
-                else
-                {
-                    //If file extension of the uploaded file is different then .xlsx  
-                    ViewBag.Message = "Please select file with .xlsx extension!";
+                    else
+                        TempData["Ok"] = false;
                 }
             }
-            return RedirectToAction("Index");//View(dt);
+            else
+            {
+                TempData["SelectFile"] = true;
+            }
+            return RedirectToAction("Index");
         }
 
         public async Task LogActivity(string path, string textline)
         {
-            using (System.IO.StreamWriter file =
-                new System.IO.StreamWriter($"{path}Processed.txt", true))
+            using (StreamWriter file =
+                new StreamWriter($"{path}Processed.txt", true))
             {
                 await file.WriteLineAsync(textline);
             }
         }
 
-        public class ProcessDataResult
+        public async Task<string> DownloadFileAsync(string docId, int attachNumber = 1)
         {
-            public DataTable DataProcessed { get; set; }
-            public List<string> RetryList { get; set; }
+            string ret = string.Empty;
+            try
+            {
+                string url = $"{Constants.ApiUrl}?documentId={docId}&attachmentNumber={attachNumber}&contentType=excel12book";
+
+                string filePath = $"{_webRootDownloadPath}{docId}.xlsx";
+
+                using (var client = new MyWebClient(3000))
+                {
+                    client.Credentials = System.Net.CredentialCache.DefaultNetworkCredentials;
+
+                    await client.DownloadFileTaskAsync(new Uri(url), filePath);
+                }
+            }
+            catch
+            {
+                ret = docId;
+            }
+
+            return ret;
         }
 
-        private async Task<ProcessDataResult> ProcessData(string webRootDownloadPath, List<string> docIds, string apiUrl, int attachNumber)
+        private async Task ProcessDocument(DataTable dtDocument, string docId)
         {
-            DataTable dtDocument = null;
-            List<string> retryList = null;
-            foreach (string docId in docIds)
+            try
             {
-                if (dtDocument == null)
+                string newFilePath = $"{_webRootDownloadPath}{docId}.xlsx";
+
+                using (XLWorkbook workbook = new XLWorkbook(newFilePath))
                 {
-                    dtDocument = new DataTable("DB");
-                    dtDocument.Columns.Add("DocId", typeof(string));
-                    //add columns
-                    Constants.GetFields.ForEach(e =>
-                    {
-                        dtDocument.Columns.Add(e.Name, typeof(string));
-                    });
-                }
+                    IXLWorksheet worksheet = workbook.Worksheet(1);
 
-                try
-                {
-                    var response = await DoHttp(apiUrl, docId, attachNumber);
-
-                    if (response.RawBytes == null)
-                    {
-                        if (retryList == null) retryList = new List<string>();
-                        retryList.Add(docId);
-
-                        if (attachNumber > 1)
-                        {
-                            var row = dtDocument.NewRow();
-                            row["DocId"] = docId + " - Error al descargar adjunto 2";
-                            dtDocument.Rows.Add(row);
-                        }
-                        //attachNumber = 2;
-                        //response = await DoHttp(apiUrl, docId, attachNumber);
-                        await LogActivity(webRootDownloadPath, $"{docId}, accion: reprocesando attachment 2");
-                    }
-                    //else
-                    //{
-                    if (response.RawBytes != null)
-                    {
-                        await LogActivity(webRootDownloadPath, docId);
-
-                        if (!Directory.Exists(webRootDownloadPath))
-                        {
-                            Directory.CreateDirectory(webRootDownloadPath);
-                        }
-
-                        string newFilePath = $"{webRootDownloadPath}{docId}.xlsx";
-                        System.IO.File.WriteAllBytes(newFilePath, response.RawBytes);
-
-                        using (XLWorkbook workbook = new XLWorkbook(newFilePath))
-                        {
-                            IXLWorksheet worksheet = workbook.Worksheet(1);
-
-                            //mapping fields
-                            var row = dtDocument.NewRow();
-                            var _docId = $"{docId}{(attachNumber > 1 ? "-" + attachNumber.ToString() : string.Empty)}";
-                            row["DocId"] = docId; // _docId;
-
-                            foreach (Fields f in Constants.GetFields)
-                            {
-                                object value = worksheet.Cell(f.CellPosition).Value;
-                                if (f.FormatType == "%")
-                                    row[f.Name] = $"{value.ToString()} %";
-                                if (f.FormatType == "text")
-                                    row[f.Name] = value.ToString();
-                                if (f.FormatType == "number")
-                                {
-                                    decimal.TryParse(value.ToString(), out decimal outDec);
-                                    row[f.Name] = outDec;
-                                }
-                            }
-                            dtDocument.Rows.Add(row);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
+                    //mapping fields
                     var row = dtDocument.NewRow();
-                    row["DocId"] = $"{docId}, error: {ex.Message}";
-                    dtDocument.Rows.Add(row);
+                    row["DocId"] = docId;
 
-                    await LogActivity(webRootDownloadPath, $"{docId}, error: {ex.Message}");
+                    foreach (Fields f in Constants.GetFields)
+                    {
+                        object value = worksheet.Cell(f.CellPosition).Value;
+                        if (f.FormatType == "%")
+                            row[f.Name] = $"{value.ToString()} %";
+                        if (f.FormatType == "text")
+                            row[f.Name] = value.ToString();
+                        if (f.FormatType == "number")
+                        {
+                            decimal.TryParse(value.ToString(), out decimal outDec);
+                            row[f.Name] = outDec;
+                        }
+                    }
+                    dtDocument.Rows.Add(row);
+                    await LogActivity(_webRootDownloadPath, $"{docId}, OK");
 
                 }
             }
-
-            return new ProcessDataResult() { DataProcessed = dtDocument, RetryList = retryList }; //dtDocument;
-        }
-
-        public async Task<IRestResponse> DoHttp(string apiUrl, string docId, int attachNumber = 1)
-        {
-            var request = new RestRequest(Method.GET);
-            //var client = new RestClient("https://localhost:44332/file")
-            var client = new RestClient($"{apiUrl}?documentId={docId}&attachmentNumber={attachNumber}&contentType=excel12book")
+            catch (Exception ex)
             {
-                Timeout = 800
-            };
+                var row = dtDocument.NewRow();
+                row["DocId"] = $"{docId}, error: {ex.Message}";
+                dtDocument.Rows.Add(row);
 
-            return await client.ExecuteAsync(request);
+                await LogActivity(_webRootDownloadPath, $"{docId}, error: {ex.Message}");
+            }
         }
-
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Error()

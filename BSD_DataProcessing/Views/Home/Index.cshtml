@@ -2,19 +2,43 @@
     //ViewData["Title"] = "Home Page";
 }
 
-<div style="width:90%">
-    <h2>Bienvenido</h2>
-    <p>Para completar la tarea es necesario que proveea el archivo (DocumentIdList.xlsx) con los Ids de los documentos a procesar</p>
+    <div style="width:90%">
+        <h2>Bienvenido</h2>
+        <p>Para completar la tarea es necesario que proveea el archivo (DocumentIdList.xlsx) con los Ids de los documentos a procesar</p>
 
-    @using (Html.BeginForm("UploadExcel", "Home", FormMethod.Post, new { enctype = "multipart/form-data" }))
-    {
-        <div class="modal-body" style="padding-left:0px">
-            <div class="form-group">
-                <input type="file" id="fileupload" name="fileupload" accept=".xls, .xlsx" />
+        @using (Html.BeginForm("UploadExcel", "Home", FormMethod.Post, new { enctype = "multipart/form-data" }))
+        {
+            <div class="modal-body" style="padding-left:0px">
+                <div class="form-group">
+                    <input type="file" id="fileupload" name="fileupload" accept=".xls, .xlsx" />
+                </div>
             </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-primary">Importar</button>
-        </div>
-    }
-</div>
+            <div class="modal-footer">
+                <button class="btn btn-primary">Procesar</button>
+            </div>
+            @if (TempData["SelectFile"] != null)
+            {
+                <div class="alert alert-warning">
+                    <strong>Warning!</strong> selecciona un archivo.
+                </div>
+            }
+        }
+
+        @if (TempData["Ok"] != null)
+        {
+            if ((bool)TempData["Ok"])
+            {
+                <div class="alert alert-success">
+                    <strong>Success!</strong> archivos procesados correctamente.
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-danger">
+                    <strong>Danger!</strong> Error al obtener los archivos, intente de nuevo mas tarde.
+                </div>
+            }
+        }
+
+
+    </div>
