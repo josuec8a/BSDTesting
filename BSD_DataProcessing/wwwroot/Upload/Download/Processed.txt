@@ -2,11 +2,3 @@ taskResult1.Lenght: 143, OK
 taskResult2.Lenght: 143, Error
 taskResult1.Lenght: 143, OK
 taskResult2.Lenght: 143, Error
-taskResult1.Lenght: 143, OK
-taskResult2.Lenght: 143, Error
-taskResult1.Lenght: 143, OK
-taskResult2.Lenght: 143, Error
-taskResult1.Lenght: 143, OK
-taskResult2.Lenght: 143, Error
-taskResult1.Lenght: 143, OK
-taskResult2.Lenght: 143, Error
